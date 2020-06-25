@@ -1,0 +1,11 @@
+﻿DROP TABLE if exists target;
+
+CREATE TABLE target
+(
+  id integer NOT NULL,
+  type character varying NOT NULL,
+  x double precision NOT NULL,
+  y double precision NOT NULL,
+  id_rls integer not null references rls (id),
+  CONSTRAINT target_pkey PRIMARY KEY (id)
+);

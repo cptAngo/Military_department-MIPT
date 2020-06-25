@@ -1,0 +1,25 @@
+﻿drop type my_type cascade;
+CREATE TYPE my_type AS (x float, y float);
+
+CREATE OR REPLACE FUNCTION my_func_boom(x_new_kp float, y_new_kp float, id_boom integer) returns my_type as
+$$
+declare
+result my_type;
+x_rls double precision;
+y_rls double precision;
+x_b float;
+y_b float;
+az float;
+alt float;
+begin
+select x, y into x_rls, y_rls from rls where id=6;
+select azimut_rls1, altitude_rls1 into az, alt from nuclear_boom where id=id_boom;
+ result.x:=x_rls-x_new_kp+(50000/alt)*cos(az);
+ result.y:=y_rls-y_new_kp+(50000/alt)*sin(az);
+ return result;
+ end;
+ $$ language plpgsql;
+
+--INSERT INTO rls (type, x, y) VALUES ('F-16', 0, 0);
+--INSERT INTO nuclear_boom (azimut_rls1, altitude_rls1, azimut_rls2, altitude_rls2, azimut_rls3, altitude_rls3) VALUES (60*3.14/180, 50000, 0, 2, 23, 23);
+select * from my_func_boom(0, 0, 18);

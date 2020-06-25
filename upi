@@ -1,0 +1,9 @@
+﻿drop table if exists upi;
+
+create table upi (
+id serial not null primary key,
+"id_nearest_rls" integer not null,
+"x" float not null,
+"y" float not null,
+"azimut" float not null
+);

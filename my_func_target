@@ -1,0 +1,24 @@
+﻿drop type my_type cascade;
+CREATE TYPE my_type AS (x float, y float);
+
+CREATE OR REPLACE FUNCTION my_func_target(x_new_kp float, y_new_kp float, id_target integer) returns my_type as'
+declare
+result my_type;
+x_rls double precision;
+y_rls double precision;
+x_t float;
+y_t float;
+begin
+select x, y into x_rls, y_rls from rls where id=1;
+select x_rls1, Y_rls1 into x_t, y_t from target where id=id_target;
+ result.x:=x_rls-x_new_kp+x_t;
+ result.y:=y_rls-y_new_kp+y_t;
+update target set x_kp=result.x, y_kp=result.y where id=id_target;
+ return result;
+ end;
+ ' language plpgsql;
+
+--INSERT INTO rls1 (type, x, y) VALUES ('F-16', 0, 0);
+--INSERT INTO target (Type, x_rls1, y_rls1, x_rls2, y_rls2, x_rls3, y_rls3) VALUES ('plane', 0, 0, 2, 23, 23, 543);
+select * from my_func_target(1, 23, 3);
+select * from target order by id;

@@ -1,0 +1,8 @@
+﻿DROP TABLE if exists ars cascade;
+
+CREATE TABLE ars
+(
+  id serial NOT NULL unique references rls (id),
+  status character varying DEFAULT 'deactivated' check(status='deactivated' or status='activated'),
+  CONSTRAINT ars_pkey PRIMARY KEY (id)
+)

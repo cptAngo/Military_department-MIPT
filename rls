@@ -1,0 +1,11 @@
+﻿drop table if exists rls cascade;
+
+CREATE TABLE rls
+(
+  id serial NOT NULL unique,
+  type character varying NOT NULL,
+  x double precision DEFAULT 0.0,
+  y double precision DEFAULT 0.0,
+  screen_id integer not null references ars (id),
+  CONSTRAINT rls_pkey PRIMARY KEY (id)
+);

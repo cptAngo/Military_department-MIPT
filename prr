@@ -1,0 +1,6 @@
+﻿drop table if exists prr;
+
+create table prr (
+id serial not null primary key,
+"alpha" varchar not null
+);

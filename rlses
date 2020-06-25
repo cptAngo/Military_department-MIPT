@@ -1,0 +1,33 @@
+﻿drop table if exists rls1;
+drop table if exists rls2;
+drop table if exists rls3;
+
+CREATE TABLE rls1
+(
+  id serial NOT NULL,
+  type character varying NOT NULL,
+  x double precision default 0.0,
+  y double precision default 0.0,
+  screen_id integer,
+  CONSTRAINT rls1_pkey PRIMARY KEY (id)
+);
+
+CREATE TABLE rls2
+(
+  id serial NOT NULL,
+  type character varying NOT NULL,
+  x double precision default 0.0,
+  y double precision default 0.0,
+  screen_id integer,
+  CONSTRAINT rls2_pkey PRIMARY KEY (id)
+);
+
+CREATE TABLE rls3
+(
+  id serial NOT NULL,
+  type character varying NOT NULL,
+  x double precision default 0.0,
+  y double precision default 0.0,
+  screen_id integer ,
+  CONSTRAINT rls3_pkey PRIMARY KEY (id)
+);

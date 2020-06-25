@@ -1,0 +1,13 @@
+# TYPE  DATABASE    USER        IP-ADDRESS        IP-MASK           METHOD
+#local	all		all						trust
+local	all		postgres					trust
+local	test		reader1						md5
+local	test		reader2						md5
+local	test		writer1						md5
+local	test		writer2						md5
+#local   all         postgres                                        ident admins
+#local   all         all                                             pam
+#host    all         all         127.0.0.1         255.255.255.255   pam
+#host	all		all	127.0.0.1	255.255.255.255		ident admins
+host	all		all	127.0.0.1	255.255.255.255		trust
+#host	all		all	127.0.0.1	255.255.255.255		md5

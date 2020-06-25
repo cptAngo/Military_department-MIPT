@@ -1,0 +1,13 @@
+﻿DROP TABLE if exists nuclear_boom;
+
+CREATE TABLE nuclear_boom
+(
+  id serial NOT NULL,
+  azimut_rls1 double precision NOT NULL,
+  altitude_rls1 double precision NOT NULL,
+  azimut_rls2 double precision NOT NULL,
+  altitude_rls2 double precision NOT NULL,
+  azimut_rls3 double precision NOT NULL,
+  altitude_rls3 double precision NOT NULL,
+  constraint nuclear_pkey primary key (id)
+);

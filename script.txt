@@ -1,0 +1,478 @@
+REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM readers;
+REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM writers;
+REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public FROM writers;
+
+DROP USER if exists reader1;
+DROP USER if exists reader2;
+DROP USER if exists writer1;
+DROP USER if exists writer2;
+
+DROP GROUP if exists readers;
+DROP GROUP if exists writers;
+
+CREATE GROUP readers;
+CREATE GROUP writers;
+
+CREATE USER reader1 WITH PASSWORD 'reader1' NOCREATEDB NOCREATEUSER;
+CREATE USER reader2 WITH PASSWORD 'reader2' NOCREATEDB NOCREATEUSER;
+
+CREATE USER writer1 WITH PASSWORD 'writer1' NOCREATEDB NOCREATEUSER;
+CREATE USER writer2 WITH PASSWORD 'writer2' NOCREATEDB NOCREATEUSER;
+
+ALTER GROUP readers ADD USER reader1, reader2;
+ALTER GROUP writers ADD USER writer1, writer2;
+
+drop trigger if exists Select_prr on target;
+drop type my_type cascade;
+
+drop view if exists ARM;
+drop view if exists target_rls1;
+drop view if exists target_rls2;
+drop view if exists target_rls3;
+
+ALTER TABLE if exists rls DROP CONSTRAINT if exists rls_fk;
+ALTER TABLE if exists target DROP CONSTRAINT if exists target_fk;
+ALTER TABLE if exists nuclear_boom DROP CONSTRAINT if exists boom_fk;
+
+DROP TABLE if exists kp;
+DROP TABLE if exists ars;
+drop table if exists rls;
+DROP TABLE if exists nuclear_boom;
+DROP TABLE if exists target;
+
+CREATE TYPE my_type AS (x float, y float, id integer);
+
+CREATE TABLE kp
+(
+  id serial NOT NULL unique,
+  type character varying NOT NULL,
+  x double precision NOT NULL DEFAULT 0.0,
+  y double precision NOT NULL DEFAULT 0.0,
+  CONSTRAINT kp_pkey PRIMARY KEY (id),
+  CONSTRAINT kp_id_check CHECK (id = 1)
+);
+
+CREATE TABLE ars
+(
+  id serial NOT NULL,
+  status character varying DEFAULT 'deactivated' check(status='deactivated' or status='activated'),
+  CONSTRAINT ars_pkey PRIMARY KEY (id)
+);
+
+CREATE TABLE rls
+(
+  id serial NOT NULL,
+  type character varying NOT NULL,
+  x double precision DEFAULT 0.0,
+  y double precision DEFAULT 0.0,
+  screen_id integer not null unique,
+  CONSTRAINT rls_pkey PRIMARY KEY (id)
+);
+
+CREATE TABLE target
+(
+  id serial NOT NULL,
+  type character varying NOT NULL,
+  x double precision NOT NULL,
+  y double precision NOT NULL,
+  id_rls integer not null,
+  CONSTRAINT target_pkey PRIMARY KEY (id)
+);
+
+CREATE TABLE nuclear_boom
+(
+  id serial NOT NULL,
+  azimuth double precision NOT NULL,
+  altitude double precision NOT NULL,
+  id_rls integer not null,
+  constraint nuclear_pkey primary key (id)
+);
+
+ALTER TABLE rls ADD CONSTRAINT rls_fk FOREIGN KEY (screen_id) REFERENCES ars (id);
+ALTER TABLE target ADD CONSTRAINT target_fk FOREIGN KEY (id_rls) REFERENCES rls (id);
+ALTER TABLE nuclear_boom ADD CONSTRAINT boom_fk FOREIGN KEY (id_rls) REFERENCES rls (id);
+
+CREATE OR REPLACE FUNCTION my_func_target(x_new_kp float, y_new_kp float, id_target integer) returns my_type as
+$$
+declare
+result my_type;
+x_rls double precision;
+y_rls double precision;
+x_t float;
+y_t float;
+begin
+select x, y into x_rls, y_rls from rls where id=1;
+select x_rls1, Y_rls1 into x_t, y_t from target where id=id_target;
+ result.x:=x_rls-x_new_kp+x_t;
+ result.y:=y_rls-y_new_kp+y_t;
+ result.id:=id_target;
+update target set x_kp=result.x, y_kp=result.y where id=id_target;
+update kp set x=x_new_kp, y=y_new_kp;
+ return result;
+ end;
+$$ language plpgsql;
+
+CREATE OR REPLACE FUNCTION my_func_boom(x_new_kp float, y_new_kp float, id_boom integer) returns my_type as
+$$
+declare
+result my_type;
+x_rls double precision;
+y_rls double precision;
+x_b float;
+y_b float;
+az float;
+alt float;
+begin
+select x, y into x_rls, y_rls from rls where id=(select id_rls from nuclear_boom where id=id_boom);
+select azimuth, altitude into az, alt from nuclear_boom where id=id_boom;
+ result.x:=x_rls-x_new_kp+(50000/alt)*cos(az*3.14/180);
+ result.y:=y_rls-y_new_kp+(50000/alt)*sin(az*3.14/180);
+ result.id:=id_boom;
+ return result;
+ end;
+$$ language plpgsql;
+
+create or replace function select_prr() returns trigger as 
+$$
+declare
+t character varying;
+begin
+if NEW.type = 'ARM' then
+update ars set status = 'activated' where NEW.id_rls=ars.id;
+end if;
+return new;
+end;
+$$ language plpgsql;
+
+create view ARM as select * from target where type='ARM';
+create view target_rls1 as select * from target where id_rls=1;
+create view target_rls2 as select * from target where id_rls=2;
+create view target_rls3 as select * from target where id_rls=3;
+create view nuclear_booms as select my_func_boom(0, 0, id) from nuclear_boom;
+
+CREATE TRIGGER Select_prr after INSERT ON target FOR EACH ROW EXECUTE PROCEDURE select_prr();
+
+insert into kp (type) values ('Фундамент-2Э');
+
+insert into ars (status) values ('deactivated');
+insert into ars (status) values ('deactivated');
+insert into ars (status) values ('deactivated');
+
+insert into rls (type, x, y, screen_id)  values ('Противник-ГЕ', 7, 7, 1);
+insert into rls (type, x, y, screen_id) values ('Небо-Е', -7, 7, 2);
+insert into rls (type, x, y, screen_id) values ('Гамма-ДЕ', 0, -7, 3);
+
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-16', 132.755956496, 131.160271542, 1);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-16', 47.9664124551, 362.294489324, 3);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-15', 480.498167794, 310.433313835, 2);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-18', 266.971366273, 408.201598308, 3);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-35', 42.108832431, 491.411830268, 3);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-16', 411.52867475, 119.424815693, 2);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-35', 25.2800868622, 432.017076328, 2);
+INSERT INTO target (type, x, y, id_rls) VALUES ('ARM', 110.685639456, 206.228640613, 2);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-16', 77.9343169284, 103.148711402, 3);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-15', 427.980839938, 201.460421891, 1);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-18', 171.123762213, 465.60887578, 2);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-15', 283.043490749, 239.666258888, 2);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-18', 116.711164865, 344.044229841, 2);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-35', 450.56260301, 84.5443669029, 1);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-35', 415.853214272, 153.758473659, 1);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-35', 414.339583544, 408.301622444, 3);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-18', 106.286156892, 165.229705958, 3);
+INSERT INTO target (type, x, y, id_rls) VALUES ('ARM', 250.37243552, 337.187620818, 2);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-18', 207.380645691, 97.6837375179, 2);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-15', 478.870671666, 32.6236178388, 3);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-16', 270.579832122, 383.567078727, 2);
+INSERT INTO target (type, x, y, id_rls) VALUES ('ARM', 433.504051987, 399.561664504, 1);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-15', 70.3798735945, 214.307411678, 1);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-15', 304.496690596, 298.116843394, 3);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-18', 64.1103653057, 154.173863722, 2);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-18', 376.594465282, 320.604260797, 1);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-16', 136.119896433, 226.553282388, 3);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-18', 314.568999028, 61.2829619705, 3);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-18', 329.03905541, 467.312340909, 2);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-16', 414.610505798, 20.2346789604, 3);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-15', 208.13189699, 414.398083292, 2);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-15', 59.0221420728, 138.717095262, 3);
+INSERT INTO target (type, x, y, id_rls) VALUES ('ARM', 392.240052471, 101.956844974, 1);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-18', 496.184402854, 237.999019936, 3);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-35', 439.16483849, 97.3074219213, 3);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-35', 240.685450204, 482.40673314, 2);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-15', 168.839624725, 144.706754674, 3);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-18', 165.288220881, 116.702842428, 1);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-18', 56.028993767, 108.428123482, 3);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-15', 162.07622705, 374.013750893, 1);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-35', 253.487288064, 84.4789035396, 2);
+INSERT INTO target (type, x, y, id_rls) VALUES ('ARM', 420.316961064, 423.498896774, 2);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-18', 467.271954481, 98.1998059991, 2);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-35', 147.232385043, 298.191552709, 2);
+INSERT INTO target (type, x, y, id_rls) VALUES ('ARM', 65.3479212776, 248.160769654, 1);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-18', 25.451418422, 301.525641782, 1);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-15', 145.929668359, 292.376300094, 3);
+INSERT INTO target (type, x, y, id_rls) VALUES ('ARM', 148.671733065, 88.7675295532, 3);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-15', 344.651020341, 308.941484054, 3);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-35', 258.073652004, 304.38377615, 2);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-16', 219.237770163, 221.399560214, 3);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-16', 128.557651613, 141.724548833, 1);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-18', 262.317050859, 267.998556595, 3);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-16', 405.260383583, 401.731628681, 2);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-18', 388.956024643, 427.38987677, 2);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-16', 187.659021513, 128.051440275, 1);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-15', 182.625487785, 245.656184929, 2);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-15', 336.337320417, 45.4500661751, 2);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-18', 497.459799214, 423.962575679, 2);
+INSERT INTO target (type, x, y, id_rls) VALUES ('ARM', 476.122265684, 480.115702799, 2);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-16', 76.8447189557, 269.661939185, 1);
+INSERT INTO target (type, x, y, id_rls) VALUES ('ARM', 117.998472549, 480.130707317, 1);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-15', 306.202359642, 195.622423512, 2);
+INSERT INTO target (type, x, y, id_rls) VALUES ('ARM', 496.554595241, 160.614783834, 2);
+INSERT INTO target (type, x, y, id_rls) VALUES ('ARM', 79.5290532327, 309.296809362, 1);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-35', 143.683546002, 153.304300349, 1);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-16', 36.228363497, 65.3857656338, 3);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-15', 114.857574671, 410.650201796, 1);
+INSERT INTO target (type, x, y, id_rls) VALUES ('ARM', 298.73043919, 152.331731396, 3);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-16', 370.975145014, 182.797719157, 2);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-35', 436.429316565, 181.13458337, 3);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-35', 468.108905236, 112.968772854, 3);
+INSERT INTO target (type, x, y, id_rls) VALUES ('ARM', 470.602467106, 166.655947254, 2);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-16', 80.1657388235, 270.815579022, 3);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-35', 58.9036616598, 441.935659119, 3);
+INSERT INTO target (type, x, y, id_rls) VALUES ('ARM', 60.7630842363, 236.130890883, 2);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-35', 276.695789489, 498.173388166, 1);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-15', 158.943065809, 471.425606016, 3);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-18', 284.453220701, 256.821163115, 1);
+INSERT INTO target (type, x, y, id_rls) VALUES ('ARM', 60.3578557702, 154.967909884, 3);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-35', 407.068157817, 486.59238132, 3);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-18', 466.255307264, 494.00601873, 3);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-15', 225.368831663, 142.110331088, 3);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-18', 423.734299729, 80.3345597999, 3);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-16', 357.80948642, 286.264622057, 2);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-18', 243.887122589, 467.938238647, 3);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-16', 84.4181664557, 55.2103360748, 3);
+INSERT INTO target (type, x, y, id_rls) VALUES ('ARM', 395.711326754, 359.82960015, 3);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-35', 287.899340756, 295.290811796, 1);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-35', 130.258967662, 370.167290435, 1);
+INSERT INTO target (type, x, y, id_rls) VALUES ('ARM', 277.738888307, 91.2492947892, 1);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-16', 97.8823321306, 297.858800163, 2);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-16', 411.154788291, 463.137012851, 2);
+INSERT INTO target (type, x, y, id_rls) VALUES ('ARM', 426.687620585, 175.478680403, 2);
+INSERT INTO target (type, x, y, id_rls) VALUES ('ARM', 497.131490071, 284.569288102, 1);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-35', 104.802563697, 212.534772236, 2);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-15', 105.057404486, 144.856262299, 2);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-18', 208.152987966, 434.031040853, 3);
+INSERT INTO target (type, x, y, id_rls) VALUES ('ARM', 167.915531778, 347.457242525, 1);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-18', 258.633802302, 209.866479588, 2);
+INSERT INTO target (type, x, y, id_rls) VALUES ('ARM', 375.075178338, 179.219394935, 3);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-35', 394.396890689, 429.496124982, 3);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-15', 482.606449294, 353.194615307, 2);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-16', 99.0619465514, 330.212746902, 3);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-35', 54.9212516466, 449.084760586, 1);
+INSERT INTO target (type, x, y, id_rls) VALUES ('ARM', 117.346415629, 339.439520111, 2);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-35', 162.462763467, 188.498016136, 3);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-18', 405.572042739, 295.704042062, 1);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-16', 65.7380282235, 363.594162444, 2);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-35', 414.322193065, 186.428289932, 1);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-15', 63.1336849822, 112.890496502, 1);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-15', 394.011883415, 376.481178032, 3);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-18', 45.3186647616, 436.787564357, 2);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-18', 364.068385418, 77.3959566455, 3);
+INSERT INTO target (type, x, y, id_rls) VALUES ('ARM', 302.704199838, 447.648516039, 1);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-15', 213.110903985, 354.488223225, 3);
+INSERT INTO target (type, x, y, id_rls) VALUES ('ARM', 481.208866935, 459.770843365, 3);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-35', 78.1612535938, 262.618313953, 3);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-15', 320.975588854, 106.674836806, 2);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-16', 151.755936454, 217.694078335, 1);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-15', 399.185986203, 448.026431458, 2);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-35', 363.659314951, 55.8387208166, 1);
+INSERT INTO target (type, x, y, id_rls) VALUES ('ARM', 464.74120169, 283.349370582, 1);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-35', 79.6203705042, 381.533468523, 3);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-18', 376.557978746, 284.590483225, 2);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-18', 82.614809366, 20.9827530642, 2);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-35', 46.1093263304, 112.45524213, 1);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-35', 69.9041661235, 147.939654162, 1);
+INSERT INTO target (type, x, y, id_rls) VALUES ('ARM', 222.423964697, 449.574828508, 3);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-35', 468.398306114, 350.195596859, 2);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-35', 362.993464113, 464.756798445, 3);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-15', 493.532934795, 215.309838451, 3);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-15', 51.84134611, 377.634241179, 3);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-35', 358.505853002, 395.566835821, 1);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-35', 165.650175815, 466.52000683, 2);
+INSERT INTO target (type, x, y, id_rls) VALUES ('ARM', 115.608174877, 63.2830540618, 1);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-15', 33.7786322672, 373.168220124, 3);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-16', 116.13760799, 276.139851544, 1);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-35', 78.9513816658, 327.587667741, 1);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-15', 416.022856862, 476.504115852, 3);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-18', 371.163755409, 261.300786244, 3);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-15', 148.972885125, 470.053402518, 1);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-16', 382.068539244, 113.34880833, 1);
+INSERT INTO target (type, x, y, id_rls) VALUES ('ARM', 393.97263058, 198.297327907, 2);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-15', 143.867330402, 204.356900082, 2);
+INSERT INTO target (type, x, y, id_rls) VALUES ('ARM', 256.218622505, 366.948747165, 1);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-15', 200.996464431, 166.099893268, 2);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-35', 126.211522263, 340.70778985, 3);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-15', 353.645174118, 92.2374143937, 2);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-16', 153.934841228, 342.390511334, 1);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-15', 190.900902064, 20.7210614632, 1);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-15', 177.16277481, 452.144706284, 2);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-18', 191.782555231, 249.555090955, 3);
+INSERT INTO target (type, x, y, id_rls) VALUES ('ARM', 20.6357316072, 366.026751329, 2);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-16', 453.448855612, 448.283929316, 3);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-18', 138.906613885, 437.052772234, 3);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-16', 328.177125709, 499.309011074, 2);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-18', 245.884157179, 475.082574351, 1);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-18', 247.422999831, 460.483100931, 2);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-35', 66.8758086717, 242.014433077, 1);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-18', 26.5648707227, 464.566484153, 3);
+INSERT INTO target (type, x, y, id_rls) VALUES ('ARM', 459.663759855, 260.682498656, 3);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-15', 409.812598543, 219.938313842, 1);
+INSERT INTO target (type, x, y, id_rls) VALUES ('ARM', 287.888709329, 305.283733849, 3);
+INSERT INTO target (type, x, y, id_rls) VALUES ('ARM', 51.8214373459, 282.047569244, 1);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-15', 427.061642011, 272.52752996, 3);
+INSERT INTO target (type, x, y, id_rls) VALUES ('ARM', 440.86706149, 486.585519306, 2);
+INSERT INTO target (type, x, y, id_rls) VALUES ('ARM', 409.839482679, 498.572293887, 2);
+INSERT INTO target (type, x, y, id_rls) VALUES ('ARM', 377.142755622, 274.88180939, 1);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-18', 311.370709676, 419.940008563, 1);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-15', 289.848222476, 343.666950908, 2);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-18', 77.4073398868, 92.3592390067, 3);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-18', 213.703252766, 387.864824835, 2);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-15', 491.885889241, 299.278874263, 2);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-18', 407.384870517, 210.725885726, 2);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-35', 484.710887046, 70.6667923044, 3);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-35', 68.1792296974, 354.403702574, 3);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-15', 464.519824502, 249.876842677, 2);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-16', 103.006459638, 488.436525686, 3);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-35', 364.366415669, 182.902487862, 3);
+INSERT INTO target (type, x, y, id_rls) VALUES ('ARM', 369.102221898, 337.548375155, 1);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-35', 490.653174302, 292.194723186, 1);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-16', 316.903968181, 135.48763861, 3);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-15', 109.015068323, 331.736638831, 3);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-16', 100.257182867, 457.100966567, 1);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-16', 91.6940958837, 326.38178181, 1);
+INSERT INTO target (type, x, y, id_rls) VALUES ('ARM', 381.734179355, 432.447056287, 3);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-35', 192.127715497, 213.589243344, 2);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-16', 430.74336637, 197.595489581, 2);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-35', 39.3424768544, 110.059573118, 3);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-15', 169.605959562, 250.377663672, 3);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-15', 343.177069032, 445.401785116, 1);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-16', 234.248380788, 475.690580689, 3);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-18', 265.782208348, 336.358707641, 2);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-16', 464.629843215, 499.911084326, 1);
+INSERT INTO target (type, x, y, id_rls) VALUES ('ARM', 215.851353454, 295.340356092, 2);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-18', 131.639599037, 240.326576265, 3);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-16', 92.1392982084, 301.364956475, 2);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-16', 292.671320984, 228.304311154, 2);
+INSERT INTO target (type, x, y, id_rls) VALUES ('F-16', 420.577812144, 241.224293843, 1);
+
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (66.1747120562, 2631.85730561, 2);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (149.27527385, 3027.57130129, 2);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (157.334655989, 3895.61703096, 1);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (185.449829788, 3211.46363413, 1);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (106.706428985, 899.802988828, 1);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (95.8254941194, 2468.47095248, 1);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (107.908281739, 7985.60316485, 2);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (196.019225714, 6020.4622155, 3);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (293.482295029, 1175.67143786, 3);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (328.329613552, 7337.48400552, 1);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (65.2663223892, 920.471304872, 3);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (298.512166487, 5504.95589101, 3);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (206.472398093, 1577.17334115, 2);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (51.4687108065, 254.393882278, 1);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (1.20188341738, 4764.8943603, 2);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (349.545132368, 6497.7120644, 3);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (298.225554778, 8441.36195434, 2);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (124.770474834, 1270.18261073, 3);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (182.604085821, 7690.18142279, 3);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (358.905846276, 5129.25986425, 3);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (225.270791542, 1894.40935355, 2);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (277.732784812, 2390.94985037, 2);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (195.095206853, 6722.40972947, 1);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (240.408168753, 196.287716873, 3);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (316.528324727, 8019.42592816, 3);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (43.25912673, 5232.6571909, 1);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (90.3145758113, 8585.058903, 1);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (174.221071849, 3787.56693689, 1);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (253.319946856, 2098.1221619, 1);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (67.4156559239, 2437.24140088, 3);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (199.67080836, 9127.53524806, 3);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (75.0842317866, 3572.74245852, 2);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (117.868171704, 6884.28328641, 3);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (236.924362663, 3600.04382914, 2);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (52.9221269634, 6316.11954825, 3);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (117.078311398, 1740.61019367, 1);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (197.894006882, 6650.39757136, 1);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (194.018063798, 881.436908632, 1);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (319.630634104, 9315.03870942, 2);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (39.9916447026, 2518.15874925, 2);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (334.469719258, 9769.14017772, 2);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (102.441277458, 3226.66117147, 3);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (125.664985226, 9172.79187403, 3);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (23.9162265131, 7064.12734096, 1);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (236.792646409, 9564.4538694, 3);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (76.6062376907, 2338.13831225, 3);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (37.764085809, 7205.93194117, 2);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (20.9946125723, 2256.37999755, 2);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (23.0807051396, 3440.63440405, 3);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (264.619172257, 8941.86050896, 1);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (17.5271357133, 4211.36667594, 3);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (170.852702577, 3933.62072362, 3);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (166.650964036, 1479.01075729, 3);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (133.468025528, 1454.67765399, 1);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (0.491972058822, 229.062004451, 1);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (185.201647982, 3042.30942418, 1);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (72.7063832301, 3315.19225428, 2);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (148.564098371, 7598.07202321, 2);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (281.581583361, 2766.36592681, 2);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (340.697529159, 6944.41997345, 3);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (337.027135579, 5503.81700488, 1);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (251.642257653, 1488.05206888, 2);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (261.349871068, 2494.12333782, 1);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (293.35393444, 2584.63300481, 3);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (19.4916392657, 5434.32846821, 1);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (112.331022531, 565.260024556, 1);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (75.8185378868, 169.922753761, 2);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (19.1595008925, 3495.6794207, 2);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (300.377057129, 1987.09900584, 3);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (152.332095253, 7797.68665029, 3);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (314.492791114, 1394.14958227, 3);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (270.392087117, 5221.84797174, 2);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (8.1179271256, 8222.39925118, 2);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (279.596831324, 8385.13804841, 3);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (39.5293902934, 5094.21965038, 2);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (116.762053929, 911.498286633, 3);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (184.707565465, 2654.1450112, 3);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (353.508420242, 4181.23292223, 1);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (215.578967535, 5962.15111927, 3);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (41.6416502618, 5146.74773999, 1);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (320.9616762, 5530.38877873, 2);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (230.432429244, 7040.88687034, 2);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (85.2310781997, 3298.13183621, 3);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (207.1606317, 4805.91432742, 2);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (284.464343729, 7218.72709215, 1);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (197.656940974, 1538.67853654, 2);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (1.04718692645, 7996.04684911, 2);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (165.846543846, 703.832910748, 1);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (310.137487216, 1562.97925633, 2);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (256.218184871, 1003.23859352, 1);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (91.4125000395, 8808.64198372, 1);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (104.416817105, 8884.11533419, 3);
+INSERT INTO nuclear_boom (azimuth, altitude, id_rls) VALUES (197.631373675, 9349.89392651, 2);
+
+GRANT SELECT ON TABLE rls TO GROUP readers;
+GRANT INSERT, UPDATE, DELETE ON TABLE rls TO GROUP writers;
+GRANT SELECT, UPDATE ON TABLE rls_id_seq TO GROUP writers;
+
+GRANT SELECT ON TABLE kp TO GROUP readers;
+GRANT INSERT, UPDATE, DELETE ON TABLE kp TO GROUP writers;
+GRANT SELECT, UPDATE ON TABLE kp_id_seq TO GROUP writers;
+
+GRANT SELECT ON TABLE ars TO GROUP readers;
+GRANT INSERT, UPDATE, DELETE ON TABLE ars TO GROUP writers;
+GRANT SELECT, UPDATE ON TABLE ars_id_seq TO GROUP writers;
+
+GRANT SELECT ON TABLE target TO GROUP readers;
+GRANT INSERT, UPDATE, DELETE ON TABLE target TO GROUP writers;
+GRANT SELECT, UPDATE ON TABLE target_id_seq TO GROUP writers;
+
+GRANT SELECT ON TABLE nuclear_boom TO GROUP readers;
+GRANT INSERT, UPDATE, DELETE ON TABLE nuclear_boom TO GROUP writers;
+GRANT SELECT, UPDATE ON TABLE nuclear_boom_id_seq TO GROUP writers;
